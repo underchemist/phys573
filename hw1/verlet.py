@@ -12,6 +12,7 @@ r_c = 2.5*sigma  # truncation radius for LJ potential (sigma)
 rrho = 0.85  # reduced density (#/vol)
 rV = N/rrho  # volume square box (sigma^3)
 Lx = Ly = Lz = np.power(rV, 1/3)  # length of box sides (sigma)
+dim = np.array([Lx, Ly, Lz])
 
 
 # FUNCTIONS
@@ -23,7 +24,7 @@ def V(r):
 
 def STLJ(r):
     """shifted and truncated LJ potential"""
-    return np.piecewise(r, [r < r_c, r >= r_c], [V(r), 0])
+    return np.piecewise(r, [r < r_c, r >= r_c], [lambda r: V(r), 0])
 
 
 def init_particles():
@@ -52,7 +53,25 @@ def init_particles():
         particle[2] = np.random.uniform(-2, 2)
     p_shift = np.sum(v, axis=0)  # x,y,z velocity component shift
     v = v - p_shift/N  # shifted
-    t_scale = (np.sum(v*v)/(3*N))**0.5
-    v = v/t_scale
+    t_scale = (np.sum(v*v)/(3*N))**0.5  # temperature scaling factor
+    v = v/t_scale  # scaled
 
     return (r, v)
+
+
+def PBC(r):
+    """adjust positions according to periodic boundary conditions"""
+    new = np.where(r > dim, r - dim, r)
+    new = np.where(new < 0, dim + new, new)
+    return new
+
+
+def dist_ij(particle, particles):
+    """"calculate euclidian distance between all the particles"""
+    delta = np.abs(particle - particles)
+    delta = np.where(delta > r_c, dim - delta, delta)
+    return np.sqrt((delta ** 2).sum(axis=-1))
+
+
+def main():
+    pass
