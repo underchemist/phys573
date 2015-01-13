@@ -27,9 +27,13 @@ def STLJ(r):
     return np.piecewise(r, [r < r_c, r >= r_c], [lambda r: V(r), 0])
 
 
+def LJForce(r):
+    return ((24/r))
+
 def init_particles():
     """initialize position and velocities"""
-    x = y = z = np.linspace(0, Lx, 8)  # lattice positions
+    padding = 0.1
+    x = y = z = np.linspace(0 + padding, Lx - padding, 8)  # lattice positions
 
     r = np.zeros((N, 3))  # particle positions in R3 for N particles
     v = np.zeros((N, 3))  # particle velocities in R3 for N particles
@@ -67,11 +71,33 @@ def PBC(r):
 
 
 def dist_ij(particle, particles):
-    """"calculate euclidian distance between all the particles"""
-    delta = np.abs(particle - particles)
-    delta = np.where(delta > r_c, dim - delta, delta)
-    return np.sqrt((delta ** 2).sum(axis=-1))
+    """"
+    calculate euclidian distance between all
+    the particles, with min. image convention
+    """
+    # calculate dx dy dz for all particles from particle i
+    delta = particle - particles
 
+    # remap particles with x y or z components larger than L/2
+    delta = np.where(delta > dim * 0.5, delta - dim, delta)
+    delta = np.where(delta < -dim * 0.5, delta + dim, delta)
+
+    return np.power(delta, 2).sum(axis=1)
+
+
+def force(r):
+    """calculate ij force for each particle"""
+    F = np.zeros((N, 3))
+    for i in range(N):
+        r_ij = dist_ij(r[i], np.delete(r, i, 0))
+        sub_force = np.where(r_ij < r_c**2, 48*np.power(1/r_ij, 13) - 24*np.power(1/r_ij, 7), 0)
+        F[i] = sub_force.sum(axis=1)
+
+
+def vverlet(r, v, t):
+    """velocity verlet method update positions and velocities"""
+    # calculate velocity half timestep
+    pass
 
 def main():
     pass
