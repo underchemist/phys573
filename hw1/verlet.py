@@ -2,12 +2,16 @@
 
 # IMPORTS AND LIBRARIES
 import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import csv
 
 # PARAMETERS
 N = 512  # number of particles
 m = 1  # mass set to unity (kg)
 sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
+dt = 0.005  # time step in vibrational LJ time
 r_c = 2.5*sigma  # truncation radius for LJ potential (sigma)
 rrho = 0.85  # reduced density (#/vol)
 rV = N/rrho  # volume square box (sigma^3)
@@ -28,21 +32,23 @@ def STLJ(r):
 
 
 def LJForce(r):
-    return ((24/r))
+    return 48*(np.power(r, -13) - (1/2)*np.power(r, -7))
+
 
 def init_particles():
     """initialize position and velocities"""
-    padding = 0.1
-    x = y = z = np.linspace(0 + padding, Lx - padding, 8)  # lattice positions
+    particle_per_dim = int(np.around((N**(1/3))))
+    padding = Lx/(2*particle_per_dim)
+    x = y = z = np.linspace(0 + padding, Lx - padding, particle_per_dim)  # lattice positions
 
     r = np.zeros((N, 3))  # particle positions in R3 for N particles
     v = np.zeros((N, 3))  # particle velocities in R3 for N particles
 
     # set each particle on vertex of cubic lattice inside box
     particle = 0
-    for i in range(8):
-        for j in range(8):
-            for k in range(8):
+    for i in range(particle_per_dim):
+        for j in range(particle_per_dim):
+            for k in range(particle_per_dim):
                 r[particle][0] = x[i]
                 r[particle][1] = y[j]
                 r[particle][2] = z[k]
@@ -52,52 +58,105 @@ def init_particles():
     # then shift velocity components to get null overall momentum and
     # scale by factor to get reduced temperature of 1
     for particle in v:
-        particle[0] = np.random.uniform(-2, 2)
-        particle[1] = np.random.uniform(-2, 2)
-        particle[2] = np.random.uniform(-2, 2)
+        particle[0] = np.random.uniform(-10, 10)
+        particle[1] = np.random.uniform(-10, 10)
+        particle[2] = np.random.uniform(-10, 10)
     p_shift = np.sum(v, axis=0)  # x,y,z velocity component shift
     v = v - p_shift/N  # shifted
-    t_scale = (np.sum(v*v)/(3*N))**0.5  # temperature scaling factor
-    v = v/t_scale  # scaled
+    KE, t_scale = measure_KE_temp(v)  # temperature scaling factor
+    v = v/t_scale**0.5  # scaled
 
     return (r, v)
 
 
 def PBC(r):
     """adjust positions according to periodic boundary conditions"""
-    new = np.where(r > dim, r - dim, r)
-    new = np.where(new < 0, dim + new, new)
+    new = np.where(r > dim, r % dim, r)
+    new = np.where(new < 0, r % dim, new)
     return new
 
 
-def dist_ij(particle, particles):
+def dist_ij(particle_ind, particles):
     """"
-    calculate euclidian distance between all
-    the particles, with min. image convention
+    calculate x y z distances with min. image convention
     """
     # calculate dx dy dz for all particles from particle i
-    delta = particle - particles
+    delta = particles[particle_ind] - particles
 
-    # remap particles with x y or z components larger than L/2
-    delta = np.where(delta > dim * 0.5, delta - dim, delta)
-    delta = np.where(delta < -dim * 0.5, delta + dim, delta)
-
-    return np.power(delta, 2).sum(axis=1)
+    return np.delete(delta - dim*np.around(delta/dim), particle_ind, 0)
 
 
 def force(r):
     """calculate ij force for each particle"""
     F = np.zeros((N, 3))
     for i in range(N):
-        r_ij = dist_ij(r[i], np.delete(r, i, 0))
-        sub_force = np.where(r_ij < r_c**2, 48*np.power(1/r_ij, 13) - 24*np.power(1/r_ij, 7), 0)
-        F[i] = sub_force.sum(axis=1)
+        delta = dist_ij(i, r)
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)  # euclidean distance
+        unitr = (delta.T/r_ij).T  # direction of force
+        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
+        F[i] = sub_force.sum(axis=0)
+    return F
 
 
-def vverlet(r, v, t):
+def measure_PE(r):
+    PE = np.zeros((N))
+    for i in range(N):
+        delta = dist_ij(i, r)
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
+        sub_PE = np.where(r_ij < r_c, V(r_ij), 0)
+        PE[i] = sub_PE.sum()
+    return np.sum(PE)
+
+def vverlet(r, v, F):
     """velocity verlet method update positions and velocities"""
     # calculate velocity half timestep
-    pass
+    vhalf = v + F*dt/(2*m)
+
+    # calculates new positions
+    rn = r + vhalf*dt
+
+    # update with PBC
+    rn = PBC(rn)
+
+    # calculate new force from new positions
+    Fn = force(rn)
+
+    # calculate new velocities
+    vn = vhalf + Fn*dt/(2*m)
+
+    return (rn, vn, Fn)
+
+
+def measure_KE_temp(v):
+    KE = 0.5 * np.sum(v*v)
+    return (KE, 2*KE/(3*N))
+
+
+def plot_particles(r):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim(0, Lx)
+    ax.set_ylim(0, Ly)
+    ax.set_zlim(0, Lz)
+    ax.scatter(r[:, 0], r[:, 1], r[:, 2])
+    fig.savefig('particles.png')
+
 
 def main():
-    pass
+    r, v = init_particles()
+    F = force(r)
+    f = open('vverlet.csv', 'w')
+    writer = csv.writer(f, delimiter=',')
+    writer.writerow(['time', 'KE', 'T', 'PE'])
+
+    buffer_size = 10
+    data_points = 4
+    data_buffer = np.zeros((buffer_size, data_points))
+
+    for i in range(100):
+        r, v, F = vverlet(r, v, F)
+        KE, T = measure_KE_temp(v)
+        data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, measure_PE(r)]
+        if i % 10 == 9:
+            writer.writerows(data_buffer)
+    f.close()
