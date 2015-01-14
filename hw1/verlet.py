@@ -98,6 +98,35 @@ def force(r):
     return F
 
 
+def dist_ij2(particle, particles):
+    """"
+    calculate x y z distances with min. image convention
+    """
+    # calculate dx dy dz for all particles from particle i
+    delta = particle - particles
+
+    return delta - dim*np.around(delta/dim)
+
+
+def force2(r):
+    """calculate ij force for each particle"""
+    F = np.zeros((N, 3))
+    for i in range(N):
+        delta = dist_ij2(r[i], r[i+1:])  # compute x y z distances from particle i
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)  # euclidean distance
+        unitr = (delta.T/r_ij).T  # norm. direction of force
+
+        # component wise pair wise force on particle i due to particles j
+        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
+
+        # sum of all forces on particle i
+        F[i] = sub_force.sum(axis=0)
+
+        # newton's third law
+        F[i+1:] += -sub_force
+    return F
+
+
 def measure_PE(r):
     PE = np.zeros((N))
     for i in range(N):
