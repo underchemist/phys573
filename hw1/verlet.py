@@ -120,11 +120,30 @@ def force2(r):
         sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
 
         # sum of all forces on particle i
-        F[i] = sub_force.sum(axis=0)
+        F[i] += sub_force.sum(axis=0)
 
         # newton's third law
-        F[i+1:] += -sub_force
+        F[i+1:] -= sub_force
     return F
+
+
+def test():
+    r, v = init_particles()
+    F = np.zeros((N, 3))
+    F2 = np.zeros((N, 3))
+    for i in range(N):
+        delta = dist_ij(i, r)
+        delta2 = dist_ij2(r[i], r[i+1:])
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
+        r_ij2 = np.power(np.power(delta2, 2).sum(axis=1), 0.5)
+        unitr = (delta.T/r_ij).T
+        unitr2 = (delta2.T/r_ij2).T
+        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
+        sub_force2 = (unitr2.T*np.where(r_ij2 < r_c, LJForce(r_ij2), 0)).T
+        F[i] = sub_force.sum(axis=0)
+        F2[i] += sub_force2.sum(axis=0)
+        F2[i+1:] -= sub_force2
+    return (F, F2)
 
 
 def measure_PE(r):
