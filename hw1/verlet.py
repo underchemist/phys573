@@ -26,9 +26,9 @@ def V(r):
             - (np.power((sigma/r_c), 12) - np.power((sigma/r_c), 6))))
 
 
-def STLJ(r):
-    """shifted and truncated LJ potential"""
-    return np.piecewise(r, [r < r_c, r >= r_c], [lambda r: V(r), 0])
+# def STLJ(r):
+#     """shifted and truncated LJ potential"""
+#     return np.piecewise(r, [r < r_c, r >= r_c], [lambda r: V(r), 0])
 
 
 def LJForce(r):
@@ -58,9 +58,9 @@ def init_particles():
     # then shift velocity components to get null overall momentum and
     # scale by factor to get reduced temperature of 1
     for particle in v:
-        particle[0] = np.random.uniform(-10, 10)
-        particle[1] = np.random.uniform(-10, 10)
-        particle[2] = np.random.uniform(-10, 10)
+        particle[0] = np.random.uniform(-1, 1)
+        particle[1] = np.random.uniform(-1, 1)
+        particle[2] = np.random.uniform(-1, 1)
     p_shift = np.sum(v, axis=0)  # x,y,z velocity component shift
     v = v - p_shift/N  # shifted
     KE, t_scale = measure_KE_temp(v)  # temperature scaling factor
@@ -76,29 +76,7 @@ def PBC(r):
     return new
 
 
-def dist_ij(particle_ind, particles):
-    """"
-    calculate x y z distances with min. image convention
-    """
-    # calculate dx dy dz for all particles from particle i
-    delta = particles[particle_ind] - particles
-
-    return np.delete(delta - dim*np.around(delta/dim), particle_ind, 0)
-
-
-def force(r):
-    """calculate ij force for each particle"""
-    F = np.zeros((N, 3))
-    for i in range(N):
-        delta = dist_ij(i, r)
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)  # euclidean distance
-        unitr = (delta.T/r_ij).T  # direction of force
-        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
-        F[i] = sub_force.sum(axis=0)
-    return F
-
-
-def dist_ij2(particle, particles):
+def dist_ij(particle, particles):
     """"
     calculate x y z distances with min. image convention
     """
@@ -108,13 +86,24 @@ def dist_ij2(particle, particles):
     return delta - dim*np.around(delta/dim)
 
 
-def force2(r):
-    """calculate ij force for each particle"""
+def force(r):
+    """
+    calculate pairwise force for each particle.
+    Force calculation is O(N(N-1)/2) by using Newton's
+    third law.
+    """
+
+    # initialize arrays
     F = np.zeros((N, 3))
+
+    # main calculation loop
     for i in range(N):
-        delta = dist_ij2(r[i], r[i+1:])  # compute x y z distances from particle i
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)  # euclidean distance
-        unitr = (delta.T/r_ij).T  # norm. direction of force
+        # compute x y z distances from particle i, only looking at j>i
+        delta = dist_ij(r[i], r[i+1:])
+        # euclidean distance
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
+        # norm. direction of force
+        unitr = (delta.T/r_ij).T
 
         # component wise pair wise force on particle i due to particles j
         sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
@@ -122,8 +111,9 @@ def force2(r):
         # sum of all forces on particle i
         F[i] += sub_force.sum(axis=0)
 
-        # newton's third law
+        # assign ji force to all particles  by newton's third law
         F[i+1:] -= sub_force
+
     return F
 
 
@@ -145,15 +135,6 @@ def test():
         F2[i+1:] -= sub_force2
     return (F, F2)
 
-
-def measure_PE(r):
-    PE = np.zeros((N))
-    for i in range(N):
-        delta = dist_ij(i, r)
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
-        sub_PE = np.where(r_ij < r_c, V(r_ij), 0)
-        PE[i] = sub_PE.sum()
-    return np.sum(PE)
 
 def vverlet(r, v, F):
     """velocity verlet method update positions and velocities"""
@@ -180,6 +161,16 @@ def measure_KE_temp(v):
     return (KE, 2*KE/(3*N))
 
 
+def measure_PE(r):
+    PE = 0
+    for i in range(N):
+        delta = dist_ij(r[i], r[i+1:])
+        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
+        sub_PE = np.where(r_ij < r_c, V(r_ij), 0)
+        PE += sub_PE.sum()
+    return PE
+
+
 def plot_particles(r):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -189,22 +180,35 @@ def plot_particles(r):
     ax.scatter(r[:, 0], r[:, 1], r[:, 2])
     fig.savefig('particles.png')
 
-
 def main():
+    # initialize box, forces
     r, v = init_particles()
     F = force(r)
+
+    # data output
     f = open('vverlet.csv', 'w')
     writer = csv.writer(f, delimiter=',')
-    writer.writerow(['time', 'KE', 'T', 'PE'])
+    writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
 
-    buffer_size = 10
-    data_points = 4
+    # data writing parameters
+    buffer_size = 100
+    data_count = 0
+    data_points = 5
     data_buffer = np.zeros((buffer_size, data_points))
+    total_steps = 1000
 
-    for i in range(100):
+    # calculation loop
+    for i in range(total_steps):
         r, v, F = vverlet(r, v, F)
+        # if i % sample_rate == 0:
         KE, T = measure_KE_temp(v)
-        data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, measure_PE(r)]
-        if i % 10 == 9:
+        PE = measure_PE(r)
+        data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
+        data_count += 1
+
+        if i % buffer_size == buffer_size - 1:
             writer.writerows(data_buffer)
+            data_count = 0
+            print('step', i+1)
+
     f.close()
