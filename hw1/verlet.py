@@ -13,6 +13,8 @@ sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
 dt = 0.005  # time step in vibrational LJ time
 r_c = 2.5*sigma  # truncation radius for LJ potential (sigma)
+r_c2 = r_c*r_c
+LJ_offset = 4.*(np.power(r_c, -12) - np.power(r_c, -6))
 rrho = 0.85  # reduced density (#/vol)
 rV = N/rrho  # volume square box (sigma^3)
 Lx = Ly = Lz = np.power(rV, 1/3)  # length of box sides (sigma)
@@ -20,19 +22,15 @@ dim = np.array([Lx, Ly, Lz])
 
 
 # FUNCTIONS
-def V(r):
+def V(r2):
     """Lennard-Jones potential"""
-    return (4*eps*((np.power((sigma/r), 12) - np.power((sigma/r), 6))
-            - (np.power((sigma/r_c), 12) - np.power((sigma/r_c), 6))))
-
-
-# def STLJ(r):
-#     """shifted and truncated LJ potential"""
-#     return np.piecewise(r, [r < r_c, r >= r_c], [lambda r: V(r), 0])
+    r2i = 1. / r2
+    r6i = r2i * r2i * r2i
+    return 4. * (r6i * (r6i - 1)) - LJ_offset
 
 
 def LJForce(r):
-    return 48*(np.power(r, -13) - (1/2)*np.power(r, -7))
+    return 48*(np.power(r, -13) - 0.5*np.power(r, -7))
 
 
 def init_particles():
@@ -83,7 +81,7 @@ def dist_ij(particle, particles):
     # calculate dx dy dz for all particles from particle i
     delta = particle - particles
 
-    return delta - dim*np.around(delta/dim)
+    return delta - dim*np.rint(delta/dim)
 
 
 def force(r):
@@ -100,13 +98,15 @@ def force(r):
     for i in range(N):
         # compute x y z distances from particle i, only looking at j>i
         delta = dist_ij(r[i], r[i+1:])
-        # euclidean distance
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
+        # euclidean distance squared
+        r_ij = (delta*delta).sum(axis=1)
         # norm. direction of force
-        unitr = (delta.T/r_ij).T
+        # unitr = (delta.T/r_ij**0.5).T
 
         # component wise pair wise force on particle i due to particles j
-        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
+        r2i = 1. / r_ij
+        r6i = r2i * r2i * r2i
+        sub_force = (delta.T*np.where(r_ij < r_c2, 48.*r2i*r6i*(r6i-0.5), 0)).T
 
         # sum of all forces on particle i
         F[i] += sub_force.sum(axis=0)
@@ -117,29 +117,10 @@ def force(r):
     return F
 
 
-def test():
-    r, v = init_particles()
-    F = np.zeros((N, 3))
-    F2 = np.zeros((N, 3))
-    for i in range(N):
-        delta = dist_ij(i, r)
-        delta2 = dist_ij2(r[i], r[i+1:])
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
-        r_ij2 = np.power(np.power(delta2, 2).sum(axis=1), 0.5)
-        unitr = (delta.T/r_ij).T
-        unitr2 = (delta2.T/r_ij2).T
-        sub_force = (unitr.T*np.where(r_ij < r_c, LJForce(r_ij), 0)).T
-        sub_force2 = (unitr2.T*np.where(r_ij2 < r_c, LJForce(r_ij2), 0)).T
-        F[i] = sub_force.sum(axis=0)
-        F2[i] += sub_force2.sum(axis=0)
-        F2[i+1:] -= sub_force2
-    return (F, F2)
-
-
-def vverlet(r, v, F):
+def verlet(r, v, F):
     """velocity verlet method update positions and velocities"""
     # calculate velocity half timestep
-    vhalf = v + F*dt/(2*m)
+    vhalf = v + F*dt/(2.*m)
 
     # calculates new positions
     rn = r + vhalf*dt
@@ -151,7 +132,7 @@ def vverlet(r, v, F):
     Fn = force(rn)
 
     # calculate new velocities
-    vn = vhalf + Fn*dt/(2*m)
+    vn = vhalf + Fn*dt/(2.*m)
 
     return (rn, vn, Fn)
 
@@ -162,11 +143,14 @@ def measure_KE_temp(v):
 
 
 def measure_PE(r):
-    PE = 0
+    PE = 0.0
     for i in range(N):
+        # dx dy dz with min image convention
         delta = dist_ij(r[i], r[i+1:])
-        r_ij = np.power(np.power(delta, 2).sum(axis=1), 0.5)
-        sub_PE = np.where(r_ij < r_c, V(r_ij), 0)
+        # euclidian distance squared
+        r_ij = (delta*delta).sum(axis=1)
+        #
+        sub_PE = np.where(r_ij < r_c2, V(r_ij), 0)
         PE += sub_PE.sum()
     return PE
 
@@ -186,20 +170,20 @@ def main():
     F = force(r)
 
     # data output
-    f = open('vverlet.csv', 'w')
+    f = open('verlet.csv', 'w')
     writer = csv.writer(f, delimiter=',')
     writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
 
     # data writing parameters
-    buffer_size = 100
+    buffer_size = 10
     data_count = 0
     data_points = 5
     data_buffer = np.zeros((buffer_size, data_points))
-    total_steps = 1000
+    total_steps = 100
 
     # calculation loop
     for i in range(total_steps):
-        r, v, F = vverlet(r, v, F)
+        r, v, F = verlet(r, v, F)
         # if i % sample_rate == 0:
         KE, T = measure_KE_temp(v)
         PE = measure_PE(r)
