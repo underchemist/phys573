@@ -7,7 +7,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import csv
 
 # PARAMETERS
-N = 512  # number of particles
+N = 2  # number of particles
 m = 1  # mass set to unity (kg)
 sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
@@ -26,11 +26,13 @@ def V(r2):
     """Lennard-Jones potential"""
     r2i = 1. / r2
     r6i = r2i * r2i * r2i
-    return 4. * (r6i * (r6i - 1)) - LJ_offset
+    return 4. * (r6i * (r6i - 1.0)) - LJ_offset
 
 
-def LJForce(r):
-    return 48*(np.power(r, -13) - 0.5*np.power(r, -7))
+def LJForce(r2):
+    r2i = 1. / r2
+    r6i = r2i * r2i * r2i
+    return 48. * r2i * r6i * (r6i - 0.5)
 
 
 def init_particles():
@@ -69,9 +71,7 @@ def init_particles():
 
 def PBC(r):
     """adjust positions according to periodic boundary conditions"""
-    new = np.where(r > dim, r % dim, r)
-    new = np.where(new < 0, r % dim, new)
-    return new
+    return np.where(np.logical_or(r > dim, r < 0.0), r % dim, r)
 
 
 def dist_ij(particle, particles):
@@ -95,7 +95,7 @@ def force(r):
     F = np.zeros((N, 3))
 
     # main calculation loop
-    for i in range(N):
+    for i in range(N-1):
         # compute x y z distances from particle i, only looking at j>i
         delta = dist_ij(r[i], r[i+1:])
         # euclidean distance squared
@@ -106,7 +106,7 @@ def force(r):
         # component wise pair wise force on particle i due to particles j
         r2i = 1. / r_ij
         r6i = r2i * r2i * r2i
-        sub_force = (delta.T*np.where(r_ij < r_c2, 48.*r2i*r6i*(r6i-0.5), 0)).T
+        sub_force = (delta.T*np.where(r_ij < r_c2, LJForce(r_ij), 0.0)).T
 
         # sum of all forces on particle i
         F[i] += sub_force.sum(axis=0)
@@ -114,6 +114,31 @@ def force(r):
         # assign ji force to all particles  by newton's third law
         F[i+1:] -= sub_force
 
+    return F
+
+
+def force2(r):
+    F = np.zeros((N, 3))
+    for i in range(N-1):
+        for j in range(i+1, N):
+            dx = r[i, 0] - r[j, 0]
+            dy = r[i, 1] - r[j, 1]
+            dz = r[i, 2] - r[j, 2]
+            r2 = dx*dx + dy*dy + dz*dz
+            if r2 < r_c2:
+                fr2 = 1./r2
+                fr6 = fr2*fr2*fr2
+                fpr = 48.0 * fr6 * (fr6 - 0.5) / r2
+                fxi = fpr * dx
+                fyi = fpr * dy
+                fzi = fpr * dz
+
+                F[i, 0] += fxi
+                F[j, 0] -= fxi
+                F[i, 1] += fyi
+                F[j, 1] -= fyi
+                F[i, 2] += fzi
+                F[j, 2] -= fzi
     return F
 
 
@@ -144,7 +169,7 @@ def measure_KE_temp(v):
 
 def measure_PE(r):
     PE = 0.0
-    for i in range(N):
+    for i in range(N-1):
         # dx dy dz with min image convention
         delta = dist_ij(r[i], r[i+1:])
         # euclidian distance squared
@@ -155,14 +180,29 @@ def measure_PE(r):
     return PE
 
 
-def plot_particles(r):
+def measure_PE2(r):
+    PE = 0.0
+    for i in range(N-1):
+        for j in range(i+1, N):
+            dx = r[i, 0] - r[j, 0]
+            dy = r[i, 1] - r[j, 1]
+            dz = r[i, 2] - r[j, 2]
+            r2 = dx*dx + dy*dy + dz*dz
+            if r2 < r_c2:
+                fr2 = 1./r2
+                fr6 = fr2*fr2*fr2
+                PE += 4.0 * fr6 * (fr6 - 1.0)
+    return PE
+
+
+def plot_particles(r, i):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.set_xlim(0, Lx)
     ax.set_ylim(0, Ly)
     ax.set_zlim(0, Lz)
     ax.scatter(r[:, 0], r[:, 1], r[:, 2])
-    fig.savefig('particles.png')
+    fig.savefig('particles' + str(i) + '.png')
 
 def main():
     # initialize box, forces
@@ -183,14 +223,14 @@ def main():
 
     # calculation loop
     for i in range(total_steps):
-        r, v, F = verlet(r, v, F)
-        # if i % sample_rate == 0:
         KE, T = measure_KE_temp(v)
         PE = measure_PE(r)
+        r, v, F = verlet(r, v, F)
         data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
         data_count += 1
 
         if i % buffer_size == buffer_size - 1:
+            plot_particles(r, i)
             writer.writerows(data_buffer)
             data_count = 0
             print('step', i+1)
