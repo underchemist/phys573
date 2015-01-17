@@ -3,11 +3,10 @@
 # IMPORTS AND LIBRARIES
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import csv
 
 # PARAMETERS
-N = 512  # number of particles
+N = 125  # number of particles
 m = 1  # mass set to unity (kg)
 sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
@@ -37,9 +36,11 @@ def LJForce(r2):
 
 def init_particles():
     """initialize position and velocities"""
+
+    # lattice positions
     particle_per_dim = int(np.around((N**(1/3))))
-    padding = Lx/(2*particle_per_dim)
-    x = y = z = np.linspace(0 + padding, Lx - padding, particle_per_dim)  # lattice positions
+    padding = Lx / (2 * particle_per_dim)
+    x = y = z = np.linspace(0 + padding, Lx - padding, particle_per_dim)
 
     r = np.zeros((N, 3))  # particle positions in R3 for N particles
     v = np.zeros((N, 3))  # particle velocities in R3 for N particles
@@ -93,6 +94,7 @@ def force(r):
 
     # initialize arrays
     F = np.zeros((N, 3))
+    PE = 0.0
 
     # main calculation loop
     for i in range(N-1):
@@ -104,40 +106,17 @@ def force(r):
         # unitr = (delta.T/r_ij**0.5).T
 
         # component wise pair wise force on particle i due to particles j
-        sub_force = (delta.T*np.where(r_ij < r_c2, LJForce(r_ij), 0.0)).T
+        sub_force, sub_PE = np.where(r_ij < r_c2, (LJForce(r_ij), V(r_ij)), 0.)
+        sub_force = (delta.T*sub_force).T
 
         # sum of all forces on particle i
         F[i] += sub_force.sum(axis=0)
 
         # assign ji force to all particles by newton's third law
         F[i+1:] -= sub_force
+        PE += sub_PE.sum()
 
-    return F
-
-
-def force2(r):
-    F = np.zeros((N, 3))
-    for i in range(N-1):
-        for j in range(i+1, N):
-            dx = r[i, 0] - r[j, 0]
-            dy = r[i, 1] - r[j, 1]
-            dz = r[i, 2] - r[j, 2]
-            r2 = dx*dx + dy*dy + dz*dz
-            if r2 < r_c2:
-                fr2 = 1./r2
-                fr6 = fr2*fr2*fr2
-                fpr = 48.0 * fr6 * (fr6 - 0.5) / r2
-                fxi = fpr * dx
-                fyi = fpr * dy
-                fzi = fpr * dz
-
-                F[i, 0] += fxi
-                F[j, 0] -= fxi
-                F[i, 1] += fyi
-                F[j, 1] -= fyi
-                F[i, 2] += fzi
-                F[j, 2] -= fzi
-    return F
+    return (F, PE)
 
 
 def verlet(r, v, F):
@@ -152,20 +131,22 @@ def verlet(r, v, F):
     rn = PBC(rn)
 
     # calculate new force from new positions
-    Fn = force(rn)
+    Fn, PE = force(rn)
 
     # calculate new velocities
     vn = vhalf + Fn*dt/(2.*m)
 
-    return (rn, vn, Fn)
+    return (rn, vn, Fn, PE)
 
 
 def measure_KE_temp(v):
+    """ideal gas kinetic energy, temperature"""
     KE = 0.5 * np.sum(v*v)
     return (KE, 2*KE/(3*N))
 
 
 def measure_PE(r):
+    """don't use this"""
     PE = 0.0
     for i in range(N-1):
         # dx dy dz with min image convention
@@ -175,21 +156,6 @@ def measure_PE(r):
         #
         sub_PE = np.where(r_ij < r_c2, V(r_ij), 0)
         PE += sub_PE.sum()
-    return PE
-
-
-def measure_PE2(r):
-    PE = 0.0
-    for i in range(N-1):
-        for j in range(i+1, N):
-            dx = r[i, 0] - r[j, 0]
-            dy = r[i, 1] - r[j, 1]
-            dz = r[i, 2] - r[j, 2]
-            r2 = dx*dx + dy*dy + dz*dz
-            if r2 < r_c2:
-                fr2 = 1./r2
-                fr6 = fr2*fr2*fr2
-                PE += 4.0 * fr6 * (fr6 - 1.0)
     return PE
 
 
@@ -206,7 +172,7 @@ def plot_particles(r, i):
 def main():
     # initialize box, forces
     r, v = init_particles()
-    F = force(r)
+    F, PE = force(r)
 
     # data output
     f = open('verlet.csv', 'w')
@@ -214,23 +180,20 @@ def main():
     writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
 
     # data writing parameters
-    buffer_size = 10
-    data_count = 0
+    buffer_size = 100
     data_points = 5
     data_buffer = np.zeros((buffer_size, data_points))
-    total_steps = 100
+    total_steps = 1000
 
     # calculation loop
     for i in range(total_steps):
         KE, T = measure_KE_temp(v)
-        PE = measure_PE(r)
-        r, v, F = verlet(r, v, F)
+        r, v, F, PE = verlet(r, v, F)
         data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
-        data_count += 1
 
+        # write to file
         if i % buffer_size == buffer_size - 1:
             writer.writerows(data_buffer)
-            data_count = 0
             print('step', i+1)
 
     f.close()

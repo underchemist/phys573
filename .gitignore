@@ -54,4 +54,5 @@ docs/_build/
 target/
 
 # misc
-vverlet.csv
+verlet.csv
+*.png
