@@ -7,7 +7,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import csv
 
 # PARAMETERS
-N = 2  # number of particles
+N = 512  # number of particles
 m = 1  # mass set to unity (kg)
 sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
@@ -104,14 +104,12 @@ def force(r):
         # unitr = (delta.T/r_ij**0.5).T
 
         # component wise pair wise force on particle i due to particles j
-        r2i = 1. / r_ij
-        r6i = r2i * r2i * r2i
         sub_force = (delta.T*np.where(r_ij < r_c2, LJForce(r_ij), 0.0)).T
 
         # sum of all forces on particle i
         F[i] += sub_force.sum(axis=0)
 
-        # assign ji force to all particles  by newton's third law
+        # assign ji force to all particles by newton's third law
         F[i+1:] -= sub_force
 
     return F
@@ -204,6 +202,7 @@ def plot_particles(r, i):
     ax.scatter(r[:, 0], r[:, 1], r[:, 2])
     fig.savefig('particles' + str(i) + '.png')
 
+
 def main():
     # initialize box, forces
     r, v = init_particles()
@@ -230,7 +229,6 @@ def main():
         data_count += 1
 
         if i % buffer_size == buffer_size - 1:
-            plot_particles(r, i)
             writer.writerows(data_buffer)
             data_count = 0
             print('step', i+1)
