@@ -6,13 +6,15 @@ import matplotlib.pyplot as plt
 import csv
 
 # PARAMETERS
-N = 125  # number of particles
+N = 64  # number of particles
 m = 1  # mass set to unity (kg)
 sigma = 1  # 3.4e-10  # LJ sigma (m)
 eps = 1  # 1.65e-21  # LJ energy well minimum (J)
 dt = 0.005  # time step in vibrational LJ time
 r_c = 2.5*sigma  # truncation radius for LJ potential (sigma)
-r_c2 = r_c*r_c
+r_c2 = r_c*r_c  # square of truncation radius for checking
+r_max = r_c + 1.3  # skin radius
+NL_update_interval = 10  # when to update neighbor list
 LJ_offset = 4.*(np.power(r_c, -12) - np.power(r_c, -6))
 rrho = 0.85  # reduced density (#/vol)
 rV = N/rrho  # volume square box (sigma^3)
@@ -65,7 +67,10 @@ def init_particles():
     p_shift = np.sum(v, axis=0)  # x,y,z velocity component shift
     v = v - p_shift/N  # shifted
     KE, t_scale = measure_KE_temp(v)  # temperature scaling factor
-    v = v/t_scale**0.5  # scaled
+    v = v/t_scale**0.5  # scaled    
+
+    # calculation of nearest neighbors
+    NN = np.zeros(N)
 
     return (r, v)
 
@@ -82,7 +87,7 @@ def dist_ij(particle, particles):
     # calculate dx dy dz for all particles from particle i
     delta = particle - particles
 
-    return delta - dim*np.rint(delta/dim)
+    return delta - dim*np.rint(delta / dim)
 
 
 def force(r):
@@ -102,8 +107,6 @@ def force(r):
         delta = dist_ij(r[i], r[i+1:])
         # euclidean distance squared
         r_ij = (delta*delta).sum(axis=1)
-        # norm. direction of force
-        # unitr = (delta.T/r_ij**0.5).T
 
         # component wise pair wise force on particle i due to particles j
         sub_force, sub_PE = np.where(r_ij < r_c2, (LJForce(r_ij), V(r_ij)), 0.)
@@ -125,16 +128,23 @@ def verlet(r, v, F):
     vhalf = v + F*dt/(2.*m)
 
     # calculates new positions
-    rn = r + vhalf*dt
-
-    # update with PBC
-    rn = PBC(rn)
+    rn = PBC(r + vhalf*dt)
 
     # calculate new force from new positions
     Fn, PE = force(rn)
 
     # calculate new velocities
     vn = vhalf + Fn*dt/(2.*m)
+
+    return (rn, vn, Fn, PE)
+
+
+def verlet2(r, v, F):
+    """velocity verlet method update positions and velocities"""
+    rn = PBC(r + v*dt + F*dt*dt/2.0)
+    vhalf = v + F*dt/2.0
+    Fn, PE = force(rn)
+    vn = vhalf + Fn*dt/2.0
 
     return (rn, vn, Fn, PE)
 
@@ -180,15 +190,15 @@ def main():
     writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
 
     # data writing parameters
-    buffer_size = 100
+    buffer_size = 1000
     data_points = 5
     data_buffer = np.zeros((buffer_size, data_points))
-    total_steps = 1000
+    total_steps = 10000
 
     # calculation loop
     for i in range(total_steps):
         KE, T = measure_KE_temp(v)
-        r, v, F, PE = verlet(r, v, F)
+        r, v, F, PE = verlet2(r, v, F)
         data_buffer[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
 
         # write to file
