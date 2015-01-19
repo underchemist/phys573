@@ -13,7 +13,7 @@ eps = 1  # 1.65e-21  # LJ energy well minimum (J)
 dt = 0.005  # time step in vibrational LJ time
 r_c = 2.5*sigma  # truncation radius for LJ potential (sigma)
 r_c2 = r_c*r_c  # square of truncation radius for checking
-r_max = r_c + 1.3  # skin radius
+r_max = r_c + 0.2  # skin radius
 NL_update_interval = 10  # when to update neighbor list
 LJ_offset = 4.*(np.power(r_c, -12) - np.power(r_c, -6))
 rrho = 0.85  # reduced density (#/vol)
@@ -46,6 +46,8 @@ def init_particles():
 
     r = np.zeros((N, 3))  # particle positions in R3 for N particles
     v = np.zeros((N, 3))  # particle velocities in R3 for N particles
+    pair_list = np.zeros((N, N), dtype=bool)  # pair list with entries corresponding to i, j
+    dr_list = np.zeros((N, N))
 
     # set each particle on vertex of cubic lattice inside box
     particle = 0
@@ -72,7 +74,7 @@ def init_particles():
     # calculation of nearest neighbors
     NN = np.zeros(N)
 
-    return (r, v)
+    return (r, v, pair_list, dr_list)
 
 
 def PBC(r):
@@ -103,6 +105,38 @@ def force(r):
 
     # main calculation loop
     for i in range(N-1):
+        # compute x y z distances from particle i, only looking at j>i
+        delta = dist_ij(r[i], r[i+1:])
+        # euclidean distance squared
+        r_ij = (delta*delta).sum(axis=1)
+
+        # component wise pair wise force on particle i due to particles j
+        sub_force, sub_PE = np.where(r_ij < r_c2, (LJForce(r_ij), V(r_ij)), 0.)
+        sub_force = (delta.T*sub_force).T
+
+        # sum of all forces on particle i
+        F[i] += sub_force.sum(axis=0)
+
+        # assign ji force to all particles by newton's third law
+        F[i+1:] -= sub_force
+        PE += sub_PE.sum()
+
+    return (F, PE)
+
+
+def force2(r, dr_list):
+    """
+    calculate pairwise force for each particle.
+    Force calculation is O(N(N-1)/2) by using Newton's
+    third law.
+    """
+
+    # initialize arrays
+    F = np.zeros((N, 3))
+    PE = 0.0
+
+    # main calculation loop
+    for r_ij in dl:
         # compute x y z distances from particle i, only looking at j>i
         delta = dist_ij(r[i], r[i+1:])
         # euclidean distance squared
@@ -179,9 +213,27 @@ def plot_particles(r, i):
     fig.savefig('particles' + str(i) + '.png')
 
 
+# def update_pairs(r, pair_list, dr_list):
+#     for i in range(N-1):
+#         # compute x y z distances from particle i, only looking at j>i
+#         delta = dist_ij(r[i], r[i+1:])
+#         # euclidean distance squared
+#         r_ij = (delta*delta).sum(axis=1)
+
+#         pair_list[i, i+1:] = r_ij < r_max * r_max
+#         dr_list[i, i+1:] = np.where(pair_list[i, i+1:], r_ij, 0.)
+#     return (pair_list, dr_list)
+
+
+# def update_pair_sep(r, pair_list):
+#     for p in range(N*(N-1)/2):
+#         i = pair_list[p][0]
+#         j = pair_list[p][1]
+
+
 def main():
     # initialize box, forces
-    r, v = init_particles()
+    r, v, pair_list = init_particles()
     F, PE = force(r)
 
     # data output
