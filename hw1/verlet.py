@@ -285,7 +285,7 @@ def main1():
     # initialize box
     r, v = init_particles()
 
-    # build NL
+    # build NLk
     # PL, DL, RL = update_pairs(r)
 
     # calculate initial forces
