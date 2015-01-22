@@ -2,10 +2,11 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import csv
 
 # system parameters
 # all physical quantities are set to reduced units
-N = 125  # number of particles, should be a cube power
+N = 512  # number of particles, should be a cube power
 r_c = 2.5  # truncation radius for LJ potential
 r_c2 = r_c * r_c  # square of truncation radius for checking
 r_max = r_c + 0.3  # skin radius
@@ -15,7 +16,7 @@ V = N / rho  # volume square box
 L = V**(1.0/3)  # length of box sides
 dim = np.array([L, L, L])  # dimension
 dt = 0.005  # time step in vibrational LJ time
-NL_update_interval = 10  # when to update neighbor list
+update_interval = 10  # when to update neighbor list
 
 # remove discontinuity at r_c
 LJ_offset = 4.0*(np.power(r_c2, -6) - np.power(r_c2, -3))
@@ -237,17 +238,76 @@ def plot_particles(r, i):
     fig.savefig('particles' + str(i) + '.png')
 
 
-def save_state(r, v, step):
+def save_state(r, v, step, fn1='state.csv', fn2='step.csv'):
     """
     save current configuration to file to be read in later. Essentially pause
     """
     out = np.column_stack([r, v])
     step = np.array([step])
-    np.savetxt('state.csv', out, delimiter=',')
-    np.savetxt('step.csv', step, fmt='%.0u')
+    np.savetxt(fn1, out, delimiter=',')
+    np.savetxt(fn2, step, fmt='%.0u')
 
 
-def main2(load_from_state=False, save_to_file=False):
+def load_state(fn1='state.csv', fn2='step.csv'):
+    state = np.genfromtxt('state.csv', delimiter=',')
+    step = np.genfromtxt('step.csv')
+    step = int(step)
+    r = state[:, :3]
+    v = state[:, 3:]
+
+    return r, v
+
+def standard_deviation(PE):
+    """
+    estimate the uncorrelated SD using blocking method
+    """
+    blocks = PE.shape[0]
+    num_block_trans = int(np.log(blocks) / np.log(2))  # number of block transforms
+    SD = np.zeros((num_block_trans))
+
+    for b in range(num_block_trans):
+        x_mean = PE.mean()
+        SD[b] = (1/(blocks-1))*((1/blocks) * np.sum((PE - x_mean)*(PE - x_mean)))
+        blocks /= 2
+        blocks = int(np.floor(blocks))
+        if blocks % 2:
+            blocks -= 1
+        PE = 0.5 * (PE[:blocks:2] + PE[1:blocks:2])
+        print(blocks, b)
+
+    return SD
+
+
+def standard_deviation2(PE):
+    """
+    estimate the uncorrelated SD using blocking method
+    """
+    blocks = PE.shape[0]
+    SD = np.zeros((blocks))
+
+    for b in range(2, blocks-1, 2):
+        if blocks % b:
+            trunc_ind = blocks % b
+        else:
+            trunc_ind = 0
+        x = (PE[:blocks - trunc_ind].reshape((int(blocks/b), b))).mean(axis=1)
+        x_mean = x.mean()
+        SD[b-2] = ((1/(int(blocks/b)) - 1)) * (1/int(blocks/b)) * np.sum((x - x_mean)*(x - x_mean))
+
+    # for b in range(num_block_trans):
+    #     x_mean = PE.mean()
+    #     SD[b] = (1/(blocks-1))*((1/blocks) * np.sum((PE - x_mean)*(PE - x_mean)))
+    #     blocks /= 2
+    #     blocks = int(np.floor(blocks))
+    #     if blocks % 2:
+    #         blocks -= 1
+    #     PE = 0.5 * (PE[:blocks:2] + PE[1:blocks:2])
+    #     print(blocks, b)
+
+    return SD
+
+
+def main(load_from_state=False, save_to_file=False, lfn1='state.csv', lfn2='step.csv', sfn1='state.csv', sfn2='step.csv'):
     """
     routine to initialize box and propagate forward for some total number of
     steps while calculating some thermodynamic properties. Results are saved in
@@ -255,11 +315,7 @@ def main2(load_from_state=False, save_to_file=False):
     """
     # load from saved state if check true
     if load_from_state:
-        state = np.genfromtxt('state.csv', delimiter=',')
-        step = np.genfromtxt('step.csv')
-        step = int(step)
-        r = state[:, :3]
-        v = state[:, 3:]
+        r, v = load_state(lfn1, lfn2)
     else:
         # initialize box
         r, v = init_particles()
@@ -269,10 +325,17 @@ def main2(load_from_state=False, save_to_file=False):
 
     # calculate initial forces
     F, PE = force(PL, DL, RL, npairs)
+    KE, T = measure_KE_temp(v)
 
+    f = open('verlet.csv', 'w')
+    writer = csv.writer(f, delimiter=',')
+    writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
+    writer.writerow([0.0, KE, T, PE, KE + PE])
+    buffer_size = 100
     data_points = 5
-    total_steps = 10000
-    data = np.zeros((total_steps, data_points))
+    total_steps = 1000
+    data = np.zeros((buffer_size, data_points))
+    h = 'time, KE, T, PE, total E'  # header info
 
     # calculation loop
     for i in range(total_steps):
@@ -283,15 +346,188 @@ def main2(load_from_state=False, save_to_file=False):
         KE, T = measure_KE_temp(v)
 
         # write data to array
-        data[i] = [(i+1)*dt, KE, T, PE, KE + PE]
+        data[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
+
+        # write to file
+        if i % buffer_size == buffer_size - 1:
+            writer.writerows(data)
+            print('step', i+1)
 
         # update neighbor list
-        if i % NL_update_interval == 0:
+        if i % update_interval == 0:
             PL, DL, RL, npairs = update_pair_list(r)
 
     # save to file
-    h = 'time, KE, T, PE, total E'  # header info
-    np.savetxt('verlet.csv', data, delimiter=',', header=h)
-
+    # np.savetxt('verlet.csv', data, delimiter=',', header=h)
+    f.close()
     if save_to_file:
-        save_state(r, v, total_steps)
+        save_state(r, v, total_steps, sfn1, sfn2)
+
+
+def msd():
+    # initialize box
+    r, v = init_particles()
+
+    # build neighbor list
+    PL, DL, RL, npairs = update_pair_list(r)
+
+    # calculate initial forces
+    F, PE = force(PL, DL, RL, npairs)
+    KE, T = measure_KE_temp(v)
+
+    f = open('msd.csv', 'w')
+    writer = csv.writer(f, delimiter=',')
+    writer.writerow(['time', 'mds'])
+    buffer_size = 100
+    data_points = 2
+    total_steps = 1000
+    data = np.zeros((buffer_size, data_points))
+    h = 'time, KE, T, PE, total E'  # header info
+
+    # melting time
+    melting_steps = 300
+    for i in range(melting_steps):
+        r, v, F, PE = verlet(r, v, F, PL, DL, RL, npairs)
+
+        # update neighbor list
+        if i % update_interval == 0:
+            PL, DL, RL, npairs = update_pair_list(r)
+
+    # calculation loop
+    r_0 = r  # store positions at time = 0
+    for i in range(total_steps):
+        # verlet step
+        r, v, F, PE = verlet(r, v, F, PL, DL, RL, npairs)
+
+        # MSD
+        delta = dist_ij(r, r_0)
+        msd = (delta * delta).mean()
+
+        # write data to array
+        data[i % buffer_size] = [(i+1)*dt, msd]
+
+        # write to file
+        if i % buffer_size == buffer_size - 1:
+            writer.writerows(data)
+            print('step', i+1)
+
+        # update neighbor list
+        if i % update_interval == 0:
+            PL, DL, RL, npairs = update_pair_list(r)
+
+    f.close()
+
+
+def extract_D(fn='msd.csv'):
+    data = np.genfromtxt(fn, delimiter=',', skiprows=1)
+    t = data[:, 0]
+    msd = data[:, 1]
+    D = np.polyfit(t, msd, 1)[0]
+
+    return D
+
+
+def compute_RDF(r):
+    """
+    compute radial distribution function
+    """
+    # shell thickness
+    dr = 0.01
+    points = int(r_c / dr)
+    d = np.linspace(dr, r_c, points)
+    RDF = np.zeros(points)
+    n_r = np.zeros((N, points))
+    mask = np.ones(N, dtype=bool)
+    V_shell = 4.0 * np.pi * (d * d) * dr  # array
+    for i in range(N):
+        mask[i] = 0
+        delta = dist_ij(r[i], r[mask])
+        mask[i] = 1
+
+        r_ij = np.sqrt((delta * delta).sum(axis=1))
+        n_r[i] = np.histogram(r_ij, bins=points, range=(dr, r_c))[0]
+        # n_r[i] = (np.where(np.logical_and(r_ij <= d, r_ij > d - dr))[0]).size
+    RDF = n_r.mean(axis=0) / (rho * V_shell)
+
+    return RDF
+
+
+def RDF_loop():
+    fns = [['state_N512_RDF' + str(i) + '.csv', 'step_N512_RDF' + str(i) + '.csv'] for i in range(12)]
+    main(save_to_file=True, sfn1=fns[0][0], sfn2=fns[0][1])
+    for i in range(10):
+        main(load_from_state=True, save_to_file=True, lfn1=fns[i][0], lfn2=fns[i][1], sfn1=fns[i+1][0], sfn2=fns[i+1][1])
+
+
+def RDF_loop2():
+    data = np.zeros((250, 11))
+    for i in range(11):
+        file_names = ['state_N512_RDF' + str(i) + '.csv',
+                      'step_N512_RDF' + str(i) + '.csv']
+        r, v = load_state(fn1=file_names[0], fn2=file_names[1])
+        data[:, i] = compute_RDF(r)
+
+    np.savetxt('rdf.csv', data, delimiter=',')
+
+
+def main2(load_from_state=False, save_to_file=False, lfn1='state.csv', lfn2='step.csv', sfn1='state.csv', sfn2='step.csv'):
+    """
+    routine to initialize box and propagate forward for some total number of
+    steps while calculating some thermodynamic properties. Results are saved in
+    a csv file.
+    """
+    # load from saved state if check true
+    if load_from_state:
+        r, v = load_state(lfn1, lfn2)
+    else:
+        # initialize box
+        r, v = init_particles()
+
+    # build neighbor list
+    PL, DL, RL, npairs = update_pair_list(r)
+
+    # calculate initial forces
+    F, PE = force(PL, DL, RL, npairs)
+    KE, T = measure_KE_temp(v)
+
+    f = open('verlet.csv', 'w')
+    writer = csv.writer(f, delimiter=',')
+    writer.writerow(['time', 'KE', 'T', 'PE', 'total E'])
+    writer.writerow([0.0, KE, T, PE, KE + PE])
+    buffer_size = 1000
+    data_points = 5
+    total_steps = 10000
+    data = np.zeros((buffer_size, data_points))
+    h = 'time, KE, T, PE, total E'  # header info
+
+    RDF = np.zeros((250, 11))
+    count = 0
+
+    # calculation loop
+    for i in range(total_steps):
+        # verlet step
+        r, v, F, PE = verlet(r, v, F, PL, DL, RL, npairs)
+
+        # calculate new KE and T to conserve energy
+        KE, T = measure_KE_temp(v)
+
+        # write data to array
+        data[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
+
+        # write to file
+        if i % buffer_size == buffer_size - 1:
+            writer.writerows(data)
+            RDF[:, count] = compute_RDF(r)
+            count += 1
+            print('step', i+1)
+
+        # update neighbor list
+        if i % update_interval == 0:
+            PL, DL, RL, npairs = update_pair_list(r)
+
+    # save to file
+    # np.savetxt('verlet.csv', data, delimiter=',', header=h)
+    f.close()
+    np.savetxt('rdf.csv', RDF, delimiter=',')
+    if save_to_file:
+        save_state(r, v, total_steps, sfn1, sfn2)
