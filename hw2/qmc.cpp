@@ -5,7 +5,7 @@ int main() {
     typedef boost::mt19937 RNGType;    // Mersenne Twister
 
     RNGType  rng(time(0));
-    boost::random::uniform_real_distribution< > dist(-10.0, 10.0);
+    boost::random::uniform_real_distribution< > dist;
     boost::variate_generator<RNGType,
         boost::random::uniform_real_distribution< > >
         gen(rng, dist);
