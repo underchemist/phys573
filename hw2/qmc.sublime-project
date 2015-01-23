@@ -1,0 +1,13 @@
+{
+    "build_systems":
+    [
+        {
+            "name": "make",
+            "cmd": ["make"]
+        },
+        {
+            "name": "clean",
+            "cmd": ["make clean"]
+        }
+    ]
+}
