@@ -1,17 +1,11 @@
 // Copyright 2015 Yann-Sebastien Tremblay-Johnston
 #include "./qmc.h"
+#include "./mt.h"
+
+const int DIM = 3;  // dimension
+const int NEL = 2;  // number of electrons for He
+const int N = 500;  // number of random walkers
 
 int main() {
-    typedef boost::mt19937 RNGType;    // Mersenne Twister
-
-    RNGType  rng(time(0));
-    boost::random::uniform_real_distribution< > dist;
-    boost::variate_generator<RNGType,
-        boost::random::uniform_real_distribution< > >
-        gen(rng, dist);
-
-    for (int i = 0; i < 10; i++)
-        cout << gen() << endl;
-
     return 0;
 }

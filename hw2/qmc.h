@@ -1,11 +1,8 @@
+// Copyright 2015 Yann-Sebastien Tremblay-Johnston
 #ifndef QMC_H
 #define QMC_H
 
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_real_distribution.hpp>
-#include <boost/random/variate_generator.hpp>
 #include <cmath>
-#include <ctime>
 
 #include <iostream>
 #include <fstream>
