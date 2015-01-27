@@ -17,7 +17,7 @@ using std::vector;
 
 const size_t DIM = 3;  // dimension
 const size_t NEL = 2;  // number of electrons for He
-const size_t N = 5;  // number of random walkers
+const size_t N = 100;  // number of random walkers
 
 typedef vector<double> coord;
 typedef vector<coord> electrons;
