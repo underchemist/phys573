@@ -1,13 +1,8 @@
 // Copyright 2015 Yann-Sebastien Tremblay-Johnston
-#include "./qmc.h"
-#include "./mt.h"
+#include "./qmc.hpp"
+#include "./mt.hpp"
 
-const size_t DIM = 3;  // dimension
-const size_t NEL = 2;  // number of electrons for He
-const size_t N = 500;  // number of random walkers
-
-
-void init(vector<vector<vector<double> > > &r) {
+void init(walkers &r) {
     r.resize(N);
     for (size_t i = 0; i < N; i++) {
         r[i].resize(NEL);
@@ -20,20 +15,34 @@ void init(vector<vector<vector<double> > > &r) {
     }
 }
 
-int main() {
-    // array of walkers, each a pair of 2 electrons with 3 coord
-    vector<vector<vector<double> > > r;
+double psi(const coord &c1, const coord &c2) {
+    double r1 = 0.0;
+    double r2 = 0.0;
+    double r12 = 0.0;
+    double p;
 
+    for (size_t i = 0; i < DIM; i++) {
+        r1 += c1[i] * c1[i];
+        r2 += c2[i] * c2[i];
+        r12 += (c1[i] - c2[i]) * (c1[i] -c2[i]);
+    }
+
+    r1 = sqrt(r1);
+    r2 = sqrt(r2);
+    r12 = sqrt(r12);
+    p = -2.0 * r1 - 2.0 * r2 + r12 / (2.0 * (1.0 + alpha * r12));
+
+    return exp(p);
+}
+
+int main() {
+    walkers r;
+
+    // initialize walkers with positions in [0, 1)
     init(r);
 
     for (size_t i = 0; i < N; i++) {
-        for (size_t j = 0; j < NEL; j++) {
-            cout << "walker: " << i + 1
-                     << " electron: " << j + 1
-                     << " x = " << r[i][j][0]
-                     << " y = " << r[i][j][1]
-                     << " z = " << r[i][j][2] << endl;
-        }
+        cout << psi(r[i][0], r[i][1]) << endl;
     }
     return 0;
 }
