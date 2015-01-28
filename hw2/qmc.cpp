@@ -99,6 +99,7 @@ void mstep(electrons &e) {
         ++accept_count;
     }
     E = elocal(e[0], e[1]);
+    EL += E;
     Esum += E;
     Esum_sqr += E * E;
 }
@@ -114,15 +115,44 @@ void MCtherm(walkers &r) {
         singleMCstep(r);
         adjust_delta();
     }
-    Esum = 0.0;
-    Esum_sqr = 0.0;
 }
 
-void MCrun(walkers &r) {
+void MCrun(walkers &r, ofstream &acf) {
+    double ELave;
     for (int i = 0; i < MCsteps; i++) {
         singleMCstep(r);
+        ELave = compute_ELave(N);
+        acf << i << "," << ELave << endl;
+        EL = 0.0;
         adjust_delta();
     }
+}
+
+double compute_Eave(double E_sum, int N_walkers, int N_steps) {
+    N_walkers = static_cast<double>(N_walkers);
+    N_steps = static_cast<double>(N_steps);
+
+    return E_sum / N_walkers / N_steps;
+}
+
+double compute_Evar(double E_sum_sqr, double Eave, int N_walkers, int N_steps) {
+    N_walkers = static_cast<double>(N_walkers);
+    N_steps = static_cast<double>(N_steps);
+
+    return E_sum_sqr / N_walkers / N_steps - Eave * Eave;
+}
+
+double compute_Err(double Evar, int N_walkers, int N_steps) {
+    N_walkers = static_cast<double>(N_walkers);
+    N_steps = static_cast<double>(N_steps);
+
+    return sqrt(Evar) / sqrt(N_walkers * N_steps);
+}
+
+double compute_ELave(int N_walkers) {
+    N_walkers = static_cast<double>(N_walkers);
+
+    return EL / N_walkers;
 }
 
 int main() {
@@ -131,29 +161,39 @@ int main() {
     double Evar;
     double Err;
     ofstream f;
+    ofstream acf;
     f.open("data.csv");
+    acf.open("acf.csv");
+
+    // headers
     f << "Eave,Evar,Err,alpha" << endl;
+    acf << "t,El" << endl;
 
     // initialize walkers with positions in [0, 1)
     init(r);
 
-    for (int i = 0; i <= 100; i++) {
-        MCtherm(r);
+    for (int i = 0; i <= 10; i++) {
+        // MCtherm(r);
 
-        MCrun(r);
+        Esum = 0.0;
+        Esum_sqr = 0.0;
+        EL = 0.0;
 
-        Eave = Esum / double(N) / double(MCsteps);
-        Evar = Esum_sqr / double(N) / double(MCsteps) - Eave * Eave;
-        Err = sqrt(Evar) / sqrt(double(N) * double(MCsteps));
+        MCrun(r, acf);
+
+        Eave = compute_Eave(Esum, N, MCsteps);
+        Evar = compute_Evar(Esum_sqr, Eave, N, MCsteps);
+        Err = compute_Err(Evar, N, MCsteps);
+
         cout << "alpha = " << alpha
              << " <E> = " << Eave
              << " +/- " << Err
              << " <Evar> = " << Evar << endl;
 
         f << Eave << "," << Evar << "," << Err << "," << alpha << endl;
-        alpha += 0.005;
-
+        alpha += 0.05;
     }
+    acf.close();
     f.close();
 
     return 0;
