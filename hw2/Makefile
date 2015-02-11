@@ -1,7 +1,7 @@
 TARGET = qmc
 LIBS = -lm
 CXX = g++
-CXXFLAGS = -Wall -Werror -Wextra -Wshadow -g -O2 -std=c++11
+CXXFLAGS = -Wall -Werror -Wextra -Wshadow -g -O3 -std=c++11
 
 .PHONY: default all clean
 

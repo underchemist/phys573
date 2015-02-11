@@ -66,7 +66,7 @@ double elocal(const coord &c1, const coord &c2) {
     d3 = d2 * d1;
     d4 = d2 * d2;
 
-    return -4.0 + alpha * (d1 + d2 + d3) - d4 / 4.0 + dprod * d2;
+    return -4.0 - d3 / r12 + 1.0 / r12 - d4 / 4.0 + dprod * d2;
 }
 
 void adjust_delta() {
@@ -173,7 +173,7 @@ int main() {
     init(r);
 
     for (int i = 0; i <= 10; i++) {
-        // MCtherm(r);
+        MCtherm(r);
 
         Esum = 0.0;
         Esum_sqr = 0.0;

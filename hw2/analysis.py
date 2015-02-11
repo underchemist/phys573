@@ -12,8 +12,10 @@ mpl.rcParams['font.family'] = 'serif'
 
 def compute_acf(EL, Eave, Evar, MCsteps):
     C = np.zeros(MCsteps)
-    for k in range(MCsteps-1):
-        C[k] = ((((EL[:MCsteps-k] - Eave) * (EL[k:MCsteps] - Eave)).sum() / MCsteps)) / Evar
+    for k in range(MCsteps):
+        Ekave = EL.sum() / MCsteps
+        Ekvar = (EL * EL).sum() / (MCsteps) - Ekave * Ekave
+        C[k] = ((((EL[:MCsteps-k] - Ekave) * (EL[k:MCsteps] - Ekave)).sum() / (MCsteps))) / Ekvar
     return C
 
 def plot_E0_alpha(Eave, Err, alpha):
@@ -48,7 +50,8 @@ def plot_acf(C, i):
     filename = 'acf_alpha_' + str(i) + '.png'
     fig.savefig(filename, dpi=300)
 
-if __name__ == '__main__':
+
+def main():
     stats = np.genfromtxt('data.csv', delimiter=',', skiprows=1)
     acf = np.genfromtxt('acf.csv', delimiter=',', skiprows=1)
 
@@ -56,7 +59,7 @@ if __name__ == '__main__':
     Evar = stats[:, 1]
     Err = stats[:, 2]
     alpha = stats[:, 3]
-    steps = 1000
+    steps = 10000
 
     plot_E0_alpha(Eave, Err, alpha)
     plot_Evar_alpha(Evar, alpha)
@@ -65,3 +68,7 @@ if __name__ == '__main__':
         EL = acf[steps*i:steps*(i+1), 1]
         C = compute_acf(EL, Eave[i], Evar[i], steps)
         plot_acf(C, i)
+
+
+if __name__ == '__main__':
+    pass
