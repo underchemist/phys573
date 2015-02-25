@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
+from numba import jit, double, int32
 
 # system parameters
 # all physical quantities are set to reduced units
@@ -305,6 +306,25 @@ def standard_deviation2(PE):
     #     print(blocks, b)
 
     return SD
+
+
+def test_numba():
+    r, v = init_particles()
+    PL, DL, RL, npairs = update_pair_list(r)
+    F, PE = force(PL, DL, RL, npairs)
+    KE, T = measure_KE_temp(v)
+
+    buffer_size = 100
+    data_points = 5
+    total_steps = 100
+    data = np.zeros((buffer_size, data_points))
+
+    for i in range(total_steps):
+        r, v, F, PE = verlet(r, v, F, PL, DL, RL, npairs)
+        KE, T = measure_KE_temp(v)
+        data[i % buffer_size] = [(i+1)*dt, KE, T, PE, KE + PE]
+        if i % update_interval == 0:
+            PL, DL, RL, npairs = update_pair_list(r)
 
 
 def main(load_from_state=False, save_to_file=False, lfn1='state.csv', lfn2='step.csv', sfn1='state.csv', sfn2='step.csv'):
